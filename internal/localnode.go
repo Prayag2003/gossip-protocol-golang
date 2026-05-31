@@ -256,7 +256,12 @@ func (ln *LocalNode) KVWriteHandler(w http.ResponseWriter, r *http.Request) {
 	ln.mu.Unlock()
 
 	slog.Info("KV write", "key", req.Key, "value", req.Value, "version", newVersion)
-	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"ok":      true,
+		"key":     req.Key,
+		"version": newVersion,
+	})
 }
 
 func (ln *LocalNode) KVReadHandler(w http.ResponseWriter, r *http.Request) {

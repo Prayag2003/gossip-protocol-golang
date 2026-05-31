@@ -2,10 +2,9 @@
 
 # 🦠 Gossip Protocol in Go
 
-**A distributed systems implementation of the Gossip (Epidemic) Protocol, featuring peer discovery, failure detection, and replicated key-value storage.**
+### A distributed systems implementation of the Gossip (Epidemic) Protocol, <br> featuring peer discovery, failure detection, and replicated key-value storage.
 
 [![Go Version](https://img.shields.io/badge/Go-1.22%2B-00ADD8?style=flat-square&logo=go)](https://go.dev/)
-[![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](https://github.com/Prayag2003/gossip-protocol-golang/pulls)
 
 </div>
@@ -240,7 +239,10 @@ curl -X POST http://localhost:8080/kv \
      -d '{"Key":"leader","Value":"nodeA"}'
 ```
 
-**Response:** `200 OK` (no body)
+**Response:**
+```json
+{ "ok": true, "key": "leader", "version": 1 }
+```
 
 ---
 
