@@ -110,21 +110,65 @@ KV Entries (%d):%s`,
 // 	fmt.Println(string(b))
 // }
 
+func (ln *LocalNode) merge(msg GossipMessage) {
+	ln.mu.Lock()
+	defer ln.mu.Unlock()
+
+	// For Heartbeat
+	for key, incomingNode := range msg.Members {
+		if key == ln.Self.Id {
+			continue
+		}
+
+		existing, ok := ln.Members[key]
+		if !ok {
+			ln.Members[key] = incomingNode
+		} else if incomingNode.HeartBeatSeq > existing.HeartBeatSeq {
+			ln.Members[key] = incomingNode
+		}
+	}
+
+	// For KV Pairs
+	for key, incomingVal := range msg.KV {
+		existing, ok := ln.KVStore[key]
+		if !ok {
+			ln.KVStore[key] = incomingVal
+		} else if incomingVal.Version > existing.Version {
+			ln.KVStore[key] = incomingVal
+		}
+	}
+}
+
 func main() {
 	a := NewLocalNode("node-A", ":8000")
+	a.Members["node-B"] = Node{Id: "node-B", Addr: ":8081", HeartBeatSeq: 2}
+	a.KVStore["leader"] = KVEntry{Value: "node-A", Version: 1}
+
 	// a.PrettyPrint()
 	fmt.Println(a.String())
 
 	incoming := GossipMessage{
-		From: NewNode("node-B", ":8001"),
+		From: NewNode("node-B", ":8081"),
 		Members: map[string]Node{
-			"node-B": NewNode("node-B", ":8081"),
-			"node-C": NewNode("node-C", ":8082"),
+			"node-A": {Id: "node-A", HeartBeatSeq: 99},
+			"node-B": {Id: "node-B", HeartBeatSeq: 10},
+			"node-C": {Id: "node-C", HeartBeatSeq: 1},
 		},
 		KV: map[string]KVEntry{
-			"leader": {Value: "node-B", Version: 3},
+			"leader":  {Value: "node-B", Version: 5},
+			"replica": {Value: "2", Version: 1},
 		},
 	}
 
-	// a.merge(incoming)
+	a.merge(incoming)
+
+	fmt.Println("=== Members ===")
+	for id, node := range a.Members {
+		fmt.Printf("  %s → seq=%d\n", id, node.HeartBeatSeq)
+	}
+
+	fmt.Println("=== KV ===")
+	for key, entry := range a.KVStore {
+		fmt.Printf("  %s → value=%s version=%d\n", key, entry.Value, entry.Version)
+	}
 }
