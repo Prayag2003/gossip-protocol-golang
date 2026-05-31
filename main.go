@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"maps"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -139,13 +143,98 @@ func (ln *LocalNode) merge(msg GossipMessage) {
 	}
 }
 
+func (ln *LocalNode) buildGossipMessage() GossipMessage {
+	ln.mu.RLock()
+	defer ln.mu.RUnlock()
+
+	members := make(map[string]Node, len(ln.Members))
+	kv := make(map[string]KVEntry, len(ln.KVStore))
+
+	maps.Copy(members, ln.Members)
+	maps.Copy(kv, ln.KVStore)
+
+	return GossipMessage{
+		From:    ln.Self,
+		Members: members,
+		KV:      kv,
+	}
+
+}
+
+func (ln *LocalNode) gossipHandler(w http.ResponseWriter, r *http.Request) {
+	// decode the r.body into a GossipMessage
+	var gossipMessage GossipMessage
+
+	const MB = 1024 * 1024
+	r.Body = http.MaxBytesReader(w, r.Body, 1*MB)
+
+	err := json.NewDecoder(r.Body).Decode(&gossipMessage)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	ln.merge(gossipMessage)
+
+	w.Header().Set("Content-Type", "application/json")
+	err = json.NewEncoder(w).Encode(ln.buildGossipMessage())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+var SECOND = time.Second
+
+// I want to gossip to others
+func (ln *LocalNode) pushPull(peer Node) error {
+	myGossip := ln.buildGossipMessage()
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(myGossip); err != nil {
+		return fmt.Errorf("failed to encode gossip payload: %s", err.Error())
+	}
+
+	// post as JSON to peer.Addr + /gossip
+	url := "http://localhost" + peer.Addr + "/gossip"
+	req, err := http.NewRequest(http.MethodPost, url, &buf)
+	if err != nil {
+		return fmt.Errorf("failed to create post request")
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{
+		Timeout: 10 * SECOND,
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("POST request to %s failed with error: %s", url, err.Error())
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("POST error, statusCode expected: 200, received: %d", resp.StatusCode)
+	}
+
+	// decode the peer's response into gossipMessage
+	var gossipMessage GossipMessage
+	if err := json.NewDecoder(resp.Body).Decode(&gossipMessage); err != nil {
+		return fmt.Errorf("error while decoding response body: %s", err.Error())
+	}
+
+	// call merge on the response
+	ln.merge(gossipMessage)
+	return nil
+}
+
 func main() {
 	a := NewLocalNode("node-A", ":8000")
 	a.Members["node-B"] = Node{Id: "node-B", Addr: ":8081", HeartBeatSeq: 2}
 	a.KVStore["leader"] = KVEntry{Value: "node-A", Version: 1}
 
 	// a.PrettyPrint()
-	fmt.Println(a.String())
+	// fmt.Println(a.String())
 
 	incoming := GossipMessage{
 		From: NewNode("node-B", ":8081"),
