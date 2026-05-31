@@ -34,6 +34,12 @@ type LocalNode struct {
 	mu      sync.RWMutex
 }
 
+type GossipMessage struct {
+	From    Node
+	Members map[string]Node
+	KV      map[string]KVEntry
+}
+
 func main() {
 
 }
