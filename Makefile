@@ -1,105 +1,56 @@
-# ============================================================
-#  Gossip Protocol — Makefile
-#  Usage: make help
-# ============================================================
-
-BINARY   := gossip-node
+BINARY    := gossip-node
 BUILD_DIR := ./bin
+SEED      := :8080
 
-# Default ports & IDs for the demo cluster
-NODE_A_ID   := A
-NODE_A_PORT := :8080
+.PHONY: help build clean run-a run-b run-c run-d cluster node-a node-b node-c node-d kv-write kv-read
 
-NODE_B_ID   := B
-NODE_B_PORT := :8081
+help: ## Show available targets
+	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
-NODE_C_ID   := C
-NODE_C_PORT := :8082
-
-NODE_D_ID   := D
-NODE_D_PORT := :8083
-
-# Seed node is A (first node, no upstream seed)
-SEED := $(NODE_A_PORT)
-
-# ============================================================
-.PHONY: help build clean \
-        run-a run-b run-c run-d \
-        cluster status-a status-b status-c status-d \
-        kv-write kv-read
-
-# ─── Help ───────────────────────────────────────────────────
-help: ## Show this help message
-	@echo ""
-	@echo "  \033[1mGossip Protocol — available targets\033[0m"
-	@echo ""
-	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
-	@echo ""
-
-# ─── Build ──────────────────────────────────────────────────
-build: ## Compile the binary into ./bin/
+build: ## Compile → ./bin/gossip-node
 	@mkdir -p $(BUILD_DIR)
 	go build -o $(BUILD_DIR)/$(BINARY) .
-	@echo "✅  Built → $(BUILD_DIR)/$(BINARY)"
 
-clean: ## Remove compiled binaries
+clean: ## Remove build artifacts
 	rm -rf $(BUILD_DIR)
-	@echo "🧹  Cleaned build artifacts"
 
-# ─── Individual nodes ───────────────────────────────────────
-run-a: build ## Start Node A (seed / bootstrap node)
-	@echo "🚀  Starting Node A on $(NODE_A_PORT) (seed node — no upstream seed)"
-	$(BUILD_DIR)/$(BINARY) $(NODE_A_ID) $(NODE_A_PORT) ""
+run-a: build ## Start Node A (seed)
+	$(BUILD_DIR)/$(BINARY) Node-A :8080 ""
 
-run-b: build ## Start Node B (joins via seed Node A)
-	@echo "🚀  Starting Node B on $(NODE_B_PORT) → seed $(SEED)"
-	$(BUILD_DIR)/$(BINARY) $(NODE_B_ID) $(NODE_B_PORT) $(SEED)
+run-b: build ## Start Node B
+	$(BUILD_DIR)/$(BINARY) Node-B :8081 $(SEED)
 
-run-c: build ## Start Node C (joins via seed Node A)
-	@echo "🚀  Starting Node C on $(NODE_C_PORT) → seed $(SEED)"
-	$(BUILD_DIR)/$(BINARY) $(NODE_C_ID) $(NODE_C_PORT) $(SEED)
+run-c: build ## Start Node C
+	$(BUILD_DIR)/$(BINARY) Node-C :8082 $(SEED)
 
-run-d: build ## Start Node D (joins via seed Node A)
-	@echo "🚀  Starting Node D on $(NODE_D_PORT) → seed $(SEED)"
-	$(BUILD_DIR)/$(BINARY) $(NODE_D_ID) $(NODE_D_PORT) $(SEED)
+run-d: build ## Start Node D
+	$(BUILD_DIR)/$(BINARY) Node-D :8083 $(SEED)
 
-# ─── Cluster (opens 4 terminal tabs, macOS) ─────────────────
-cluster: build ## Launch a 4-node cluster in separate Terminal tabs (macOS)
-	@echo "🌐  Launching 4-node cluster …"
-	osascript -e 'tell application "Terminal" to do script "cd $(CURDIR) && $(BUILD_DIR)/$(BINARY) $(NODE_A_ID) $(NODE_A_PORT) \"\""'
+cluster: build ## Launch 4-node cluster in Terminal tabs (macOS)
+	osascript -e 'tell application "Terminal" to do script "cd $(CURDIR) && $(BUILD_DIR)/$(BINARY) Node-A :8080 \"\""'
 	@sleep 1
-	osascript -e 'tell application "Terminal" to do script "cd $(CURDIR) && $(BUILD_DIR)/$(BINARY) $(NODE_B_ID) $(NODE_B_PORT) $(SEED)"'
-	osascript -e 'tell application "Terminal" to do script "cd $(CURDIR) && $(BUILD_DIR)/$(BINARY) $(NODE_C_ID) $(NODE_C_PORT) $(SEED)"'
-	osascript -e 'tell application "Terminal" to do script "cd $(CURDIR) && $(BUILD_DIR)/$(BINARY) $(NODE_D_ID) $(NODE_D_PORT) $(SEED)"'
-	@echo "✅  Cluster started — use 'make status-*' to inspect nodes"
+	osascript -e 'tell application "Terminal" to do script "cd $(CURDIR) && $(BUILD_DIR)/$(BINARY) Node-B :8081 $(SEED)"'
+	osascript -e 'tell application "Terminal" to do script "cd $(CURDIR) && $(BUILD_DIR)/$(BINARY) Node-C :8082 $(SEED)"'
+	osascript -e 'tell application "Terminal" to do script "cd $(CURDIR) && $(BUILD_DIR)/$(BINARY) Node-D :8083 $(SEED)"'
 
-# ─── Status endpoints ────────────────────────────────────────
-status-a: ## Query /status on Node A
-	@echo "📊  Node A status:"
-	curl -s http://localhost$(NODE_A_PORT)/status | jq .
+node-a: ## GET /status from Node A
+	curl -s http://localhost:8080/status | jq .
 
-status-b: ## Query /status on Node B
-	@echo "📊  Node B status:"
-	curl -s http://localhost$(NODE_B_PORT)/status | jq .
+node-b: ## GET /status from Node B
+	curl -s http://localhost:8081/status | jq .
 
-status-c: ## Query /status on Node C
-	@echo "📊  Node C status:"
-	curl -s http://localhost$(NODE_C_PORT)/status | jq .
+node-c: ## GET /status from Node C
+	curl -s http://localhost:8082/status | jq .
 
-status-d: ## Query /status on Node D
-	@echo "📊  Node D status:"
-	curl -s http://localhost$(NODE_D_PORT)/status | jq .
+node-d: ## GET /status from Node D
+	curl -s http://localhost:8083/status | jq .
 
-# ─── KV store helpers ────────────────────────────────────────
-# Usage:
-#   make kv-write PORT=:8080 KEY=leader VALUE=nodeA
-#   make kv-read  PORT=:8081 KEY=leader
-kv-write: ## Write a KV pair to a node  (PORT= KEY= VALUE= required)
-	@: $${PORT:=$(NODE_A_PORT)}
+# make kv-write PORT=:8080 KEY=foo VALUE=bar
+kv-write: ## Write KV pair  (PORT= KEY= VALUE=)
 	curl -s -X POST http://localhost$(PORT)/kv \
 	     -H "Content-Type: application/json" \
 	     -d '{"Key":"$(KEY)","Value":"$(VALUE)"}' && echo ""
 
-kv-read: ## Read a KV pair from a node  (PORT= KEY= required)
-	@: $${PORT:=$(NODE_A_PORT)}
+# make kv-read PORT=:8081 KEY=foo
+kv-read: ## Read KV pair   (PORT= KEY=)
 	curl -s http://localhost$(PORT)/kv/$(KEY) | jq .
