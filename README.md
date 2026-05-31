@@ -173,14 +173,14 @@ Each node is started with three positional arguments:
 ### Using the Makefile
 
 ```bash
-make build                              # compile → ./bin/gossip-node
-make run-a | run-b | run-c | run-d     # start a node (auto-builds first)
-make cluster                            # launch all 4 nodes in Terminal tabs (macOS)
-make node-a | node-b | node-c | node-d # GET /status from a node
+make build                                    # compile → ./bin/gossip-node
+make run ID=Node-A PORT=:8080                 # start seed node
+make run ID=Node-B PORT=:8081 SEED=:8080      # start a peer
+make cluster                                  # launch 4-node cluster in Terminal tabs
+make node PORT=:8080                          # GET /status from a node
 make kv-write PORT=:8080 KEY=foo VALUE=bar
 make kv-read  PORT=:8082 KEY=foo
-make clean                              # remove build artifacts
-make help                               # list all targets
+make clean                                    # remove build artifacts
 ```
 
 ---
