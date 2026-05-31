@@ -56,7 +56,7 @@ func NewNode(id, addr string) Node {
 		Id:           id,
 		Addr:         addr,
 		Status:       StatusAlive,
-		HeartBeatSeq: 0,
+		HeartBeatSeq: uint64(time.Now().Unix()),
 		LastSeen:     time.Time{},
 	}
 }
@@ -131,15 +131,16 @@ func (ln *LocalNode) merge(msg GossipMessage) {
 		}
 
 		existing, ok := ln.Members[key]
+		incomingNode.LastSeen = time.Now()
 		if !ok {
 			ln.Members[key] = incomingNode
 			slog.Info("Discovered new member", "id", key, "addr", incomingNode.Addr)
 		} else if incomingNode.HeartBeatSeq > existing.HeartBeatSeq {
 			ln.Members[key] = incomingNode
-		} else if existing.Status != StatusAlive && incomingNode.Status == StatusAlive {
-			// resurrection
-			ln.Members[key] = incomingNode
-			slog.Info("Node Resurrected", "id", key)
+			if existing.Status != StatusAlive && incomingNode.Status == StatusAlive {
+				// resurrection
+				slog.Info("Node Resurrected", "id", key)
+			}
 		}
 	}
 
@@ -274,6 +275,7 @@ func main() {
 			node.mu.Lock()
 			slog.Info("Incrementing Heartbeat")
 			node.Self.HeartBeatSeq++
+			node.Self.LastSeen = time.Now()
 			node.Members[node.Self.Id] = node.Self
 			node.mu.Unlock()
 		}
@@ -281,10 +283,11 @@ func main() {
 
 	const K = 3
 
+	// Gossip Tick
 	go func() {
 		for range time.Tick(10 * SECOND) {
 			slog.Info("Starting gossip using ticks")
-			node.mu.Lock()
+			node.mu.RLock()
 
 			// collect non-self members into a slice
 			var peers []Node
@@ -292,23 +295,8 @@ func main() {
 				if id != node.Self.Id && peer.Status == StatusAlive {
 					peers = append(peers, peer)
 				}
-
-				switch peer.Status {
-				case StatusSuspcted:
-					if time.Since(peer.SuspectedAt) > 15*SECOND {
-						peer.Status = StatusDead
-						node.Members[id] = peer
-						slog.Warn("Node declared as dead", "id", id)
-					}
-
-				case StatusDead:
-					if time.Since(peer.SuspectedAt) > 60*SECOND {
-						delete(node.Members, id)
-						slog.Warn("Node removed from members", "id", id)
-					}
-				}
 			}
-			node.mu.Unlock()
+			node.mu.RUnlock()
 
 			if len(peers) == 0 {
 				continue
@@ -330,6 +318,42 @@ func main() {
 				}(peer)
 			}
 
+		}
+	}()
+
+	// Reaper Tick
+	go func() {
+		for range time.Tick(5 * SECOND) {
+			node.mu.Lock()
+			for id, peer := range node.Members {
+				if id == node.Self.Id {
+					continue
+				}
+
+				switch peer.Status {
+				case StatusAlive:
+					if time.Since(peer.LastSeen) > 30*SECOND {
+						peer.Status = StatusSuspcted
+						peer.SuspectedAt = time.Now()
+						node.Members[id] = peer
+						slog.Warn("Node suspected due to silence", "id", id, "lastSeen", peer.LastSeen)
+					}
+
+				case StatusSuspcted:
+					if time.Since(peer.SuspectedAt) > 15*SECOND {
+						peer.Status = StatusDead
+						node.Members[id] = peer
+						slog.Warn("Node declared dead", "id", id)
+					}
+
+				case StatusDead:
+					if time.Since(peer.SuspectedAt) > 60*SECOND {
+						delete(node.Members, id)
+						slog.Warn("Node removed from members", "id", id)
+					}
+				}
+			}
+			node.mu.Unlock()
 		}
 	}()
 
