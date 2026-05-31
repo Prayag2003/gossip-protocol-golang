@@ -10,3 +10,9 @@ type KVWriteRequest struct {
 	Key   string
 	Value string
 }
+
+type KVReadResponse struct {
+	Key     string
+	Value   string
+	Version uint64
+}

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -227,4 +228,59 @@ func (ln *LocalNode) Reap() {
 		}
 	}
 	ln.mu.Unlock()
+}
+
+func (ln *LocalNode) KVWriteHandler(w http.ResponseWriter, r *http.Request) {
+	var req KVWriteRequest
+
+	const MB = 1024 * 1024
+	r.Body = http.MaxBytesReader(w, r.Body, 1*MB)
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.Key == "" {
+		http.Error(w, "key is required", http.StatusBadRequest)
+		return
+	}
+
+	ln.mu.Lock()
+	existing, ok := ln.KVStore[req.Key]
+	newVersion := uint64(1)
+	if ok {
+		newVersion = existing.Version + 1
+	}
+	ln.KVStore[req.Key] = KVEntry{Value: req.Value, Version: newVersion}
+	ln.mu.Unlock()
+
+	slog.Info("KV write", "key", req.Key, "value", req.Value, "version", newVersion)
+	w.WriteHeader(http.StatusOK)
+}
+
+func (ln *LocalNode) KVReadHandler(w http.ResponseWriter, r *http.Request) {
+	// strips "/kv/" prefix to get the key
+	// e.g. /kv/leader → leader
+	key := strings.TrimPrefix(r.URL.Path, "/kv/")
+	if key == "" {
+		http.Error(w, "key is required", http.StatusBadRequest)
+		return
+	}
+
+	ln.mu.RLock()
+	entry, ok := ln.KVStore[key]
+	ln.mu.RUnlock()
+
+	if !ok {
+		http.Error(w, "key not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(KVReadResponse{
+		Key:     key,
+		Value:   entry.Value,
+		Version: entry.Version,
+	})
 }
