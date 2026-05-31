@@ -29,6 +29,7 @@ type Node struct {
 	Status       Status
 	HeartBeatSeq uint64
 	LastSeen     time.Time
+	SuspectedAt  time.Time
 }
 
 type KVEntry struct {
@@ -135,6 +136,10 @@ func (ln *LocalNode) merge(msg GossipMessage) {
 			slog.Info("Discovered new member", "id", key, "addr", incomingNode.Addr)
 		} else if incomingNode.HeartBeatSeq > existing.HeartBeatSeq {
 			ln.Members[key] = incomingNode
+		} else if existing.Status != StatusAlive && incomingNode.Status == StatusAlive {
+			// resurrection
+			ln.Members[key] = incomingNode
+			slog.Info("Node Resurrected", "id", key)
 		}
 	}
 
@@ -216,7 +221,15 @@ func (ln *LocalNode) pushPull(peer Node) error {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("POST request to %s failed with error: %s", url, err.Error())
+		ln.mu.Lock()
+		if member, ok := ln.Members[peer.Id]; ok {
+			member.Status = StatusSuspcted
+			member.SuspectedAt = time.Now()
+			ln.Members[peer.Id] = member
+		}
+
+		ln.mu.Unlock()
+		return fmt.Errorf("POST request to %s failed: %s", url, err)
 	}
 	defer resp.Body.Close()
 
@@ -278,6 +291,21 @@ func main() {
 			for id, peer := range node.Members {
 				if id != node.Self.Id && peer.Status == StatusAlive {
 					peers = append(peers, peer)
+				}
+
+				switch peer.Status {
+				case StatusSuspcted:
+					if time.Since(peer.SuspectedAt) > 15*SECOND {
+						peer.Status = StatusDead
+						node.Members[id] = peer
+						slog.Warn("Node declared as dead", "id", id)
+					}
+
+				case StatusDead:
+					if time.Since(peer.SuspectedAt) > 60*SECOND {
+						delete(node.Members, id)
+						slog.Warn("Node removed from members", "id", id)
+					}
 				}
 			}
 			node.mu.Unlock()
