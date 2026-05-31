@@ -73,5 +73,9 @@ func main() {
 
 	http.HandleFunc("/gossip", node.GossipHandler)
 	http.HandleFunc("/status", node.GetStatus)
+
+	http.HandleFunc("/kv", node.KVWriteHandler)
+	http.HandleFunc("/kv/", node.KVReadHandler)
+
 	log.Fatal(http.ListenAndServe(addr, nil))
 }
