@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -16,7 +18,7 @@ const (
 type Node struct {
 	Id           string
 	Addr         string
-	State        Status
+	Status       Status
 	HeartBeatSeq uint64
 	LastSeen     time.Time
 }
@@ -40,6 +42,89 @@ type GossipMessage struct {
 	KV      map[string]KVEntry
 }
 
-func main() {
+func NewNode(id, addr string) Node {
+	return Node{
+		Id:           id,
+		Addr:         addr,
+		Status:       StatusAlive,
+		HeartBeatSeq: 0,
+		LastSeen:     time.Time{},
+	}
+}
 
+func NewLocalNode(id, addr string) *LocalNode {
+
+	self := NewNode(id, addr)
+
+	members := make(map[string]Node)
+	members[self.Id] = self
+
+	return &LocalNode{
+		Self:    self,
+		Members: members,
+		KVStore: map[string]KVEntry{},
+	}
+}
+
+func (n *LocalNode) String() string {
+	var members strings.Builder
+	for id, node := range n.Members {
+		fmt.Fprintf(
+			&members,
+			"\n    %s => {status=%s hb=%d}",
+			id,
+			node.Status,
+			node.HeartBeatSeq,
+		)
+	}
+
+	var kvs strings.Builder
+	for key, entry := range n.KVStore {
+		fmt.Fprintf(
+			&kvs,
+			"\n    %s => {value=%q version=%d}",
+			key,
+			entry.Value,
+			entry.Version,
+		)
+	}
+
+	return fmt.Sprintf(
+		`Node=%s
+Members (%d):%s
+KV Entries (%d):%s`,
+		n.Self.Id,
+		len(n.Members),
+		members.String(),
+		len(n.KVStore),
+		kvs.String(),
+	)
+}
+
+// func (n *LocalNode) PrettyPrint() {
+// 	b, err := json.MarshalIndent(n, "", " ")
+// 	if err != nil {
+// 		fmt.Println(err)
+// 		return
+// 	}
+// 	fmt.Println(string(b))
+// }
+
+func main() {
+	a := NewLocalNode("node-A", ":8000")
+	// a.PrettyPrint()
+	fmt.Println(a.String())
+
+	incoming := GossipMessage{
+		From: NewNode("node-B", ":8001"),
+		Members: map[string]Node{
+			"node-B": NewNode("node-B", ":8081"),
+			"node-C": NewNode("node-C", ":8082"),
+		},
+		KV: map[string]KVEntry{
+			"leader": {Value: "node-B", Version: 3},
+		},
+	}
+
+	// a.merge(incoming)
 }
